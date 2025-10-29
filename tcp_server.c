@@ -6,11 +6,11 @@
 #include <sys/socket.h>
 #include <arpa/inet.h>
 #include <stdbool.h>
+#include <math.h>
 #include "utils.h"
 
 
 #define numExternals 4     // Number of external processes 
-
 
 int * establishConnectionsFromExternalProcesses()
 {
@@ -35,7 +35,7 @@ int * establishConnectionsFromExternalProcesses()
     // Create socket:
     socket_desc = socket(AF_INET, SOCK_STREAM, 0);
     
-    if(socket_desc < 0){
+    if (socket_desc < 0){
         printf("Error while creating socket\n");
         exit(0);
     }
@@ -47,14 +47,16 @@ int * establishConnectionsFromExternalProcesses()
     server_addr.sin_addr.s_addr = inet_addr("127.0.0.1");
     
     // Bind to the set port and IP:
-    if(bind(socket_desc, (struct sockaddr*)&server_addr, sizeof(server_addr))<0){
+    if (bind(socket_desc, (struct sockaddr*)&server_addr, sizeof(server_addr))<0)
+    {
         printf("Couldn't bind to the port\n");
         exit(0);
     }
     printf("Done with binding\n");
     
     // Listen for clients:
-    if(listen(socket_desc, 1) < 0){
+    if (listen(socket_desc, 1) < 0)
+    {
         printf("Error while listening\n");
         exit(0);
     }
@@ -66,12 +68,14 @@ int * establishConnectionsFromExternalProcesses()
     //  Connections from externals 
     //========================================================
     int externalCount = 0; 
-    while (externalCount < numExternals){
+    while (externalCount < numExternals)
+    {
 
         // Accept an incoming connection:
         client_socket[externalCount] = accept(socket_desc, (struct sockaddr*)&client_addr, &client_size);
         
-        if (client_socket[externalCount] < 0){
+        if (client_socket[externalCount] < 0)
+        {
             printf("Can't accept\n");
             exit(0);
         }
@@ -92,8 +96,8 @@ int * establishConnectionsFromExternalProcesses()
 int main(void)
 {
     int socket_desc; 
-   // unsigned int client_size;
-   // struct sockaddr_in server_addr, client_addr;
+    // unsigned int client_size;
+    // struct sockaddr_in server_addr, client_addr;
 
     // Messages received from clients (externals). 
     struct msg messageFromClient;   
@@ -106,39 +110,48 @@ int main(void)
 
 
     int stable = false;
-    while ( !stable ){
+    int central_temp = 0;
+
+    double last_temps[numExternals]; // Temperatures from last iteration
+    int first_db = 0; // Debounce flag to determine whether it is the first iteration
+
+    double threshold = 0.001;
+
+    while ( !stable )
+    {
 
         // Array that stores temperatures from clients 
         float temperature[numExternals];
 
         // Receive the messages from the 4 external processes 
-        for (int i = 0;  i < numExternals; i++){
+        for (int i = 0;  i < numExternals; i++)
+        {
 
             // Receive client's message:
-            if (recv(client_socket[i], (void *)&messageFromClient, sizeof(messageFromClient), 0) < 0){
+            if (recv(client_socket[i], (void *)&messageFromClient, sizeof(messageFromClient), 0) < 0)
+            {
                 printf("Couldn't receive\n");
                 return -1;
             }
 
             temperature[i] = messageFromClient.T;
             printf("Temperature of External Process (%d) = %f\n", i, temperature[i]);
-
         }
 
         // Modify Temperature 
-        float updatedTemp = temperature[0] + temperature[1] + temperature[2] + temperature[3];
-        updatedTemp += updatedTemp / 4.0;  
-
+        float updated_temp = temperature[0] + temperature[1] + temperature[2] + temperature[3];
+        central_temp = ((2 * central_temp) + updated_temp) / 6.0;
 
         // Construct message with updated temperature
         struct msg updated_msg; 
-        updated_msg.T = updatedTemp;
-        updated_msg.Index = 0;                // Index of central server 
-
+        updated_msg.T = central_temp;
+        updated_msg.Index = 0; // Index of central server 
 
         // Send updated temperatures to the 4 external processes 
-        for (int i = 0;  i < numExternals; i++){
-            if (send(client_socket[i], (const void *)&updated_msg, sizeof(updated_msg), 0) < 0){
+        for (int i = 0;  i < numExternals; i++)
+        {
+            if (send(client_socket[i], (const void *)&updated_msg, sizeof(updated_msg), 0) < 0)
+            {
                 printf("Can't send\n");
                 return -1;
             }
@@ -147,9 +160,34 @@ int main(void)
         printf("\n");
 
         // Check stability condition 
-        if (updatedTemp == 0)
-            stable = true; 
+        if (first_db == 0) 
+        {
+            // If it's the first pass, don't check condition
+            first_db = 1;
+        }
+        else
+        {
+            int num_stable = 0;
+            for (int i = 0; i < numExternals; i++) 
+            {
+                // Determine if temperature is no longer substantially changing and is stable
+                if (fabs(last_temps[i] - temperature[i]) <= threshold) 
+                {
+                    num_stable++;
+                }
+            }
 
+            if (num_stable == numExternals)
+            {
+                stable = true;
+                printf("Temperature Stable");
+            }
+        }
+
+        for (int i = 0; i < numExternals; i++) 
+        {
+            last_temps[i] = temperature[i];
+        }
     }
  
     // Closing all sockets

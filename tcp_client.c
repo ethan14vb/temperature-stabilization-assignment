@@ -7,7 +7,6 @@
 #include <arpa/inet.h>
 #include "utils.h"
 
-
 int main (int argc, char *argv[])
 {
     int socket_desc;
@@ -24,7 +23,8 @@ int main (int argc, char *argv[])
     // Create socket:
     socket_desc = socket(AF_INET, SOCK_STREAM, 0);
     
-    if(socket_desc < 0){
+    if (socket_desc < 0)
+    {
         printf("Unable to create socket\n");
         return -1;
     }
@@ -38,31 +38,50 @@ int main (int argc, char *argv[])
         
 
     // Send connection request to server:
-    if(connect(socket_desc, (struct sockaddr*)&server_addr, sizeof(server_addr)) < 0){
+    if (connect(socket_desc, (struct sockaddr*)&server_addr, sizeof(server_addr)) < 0)
+    {
         printf("Unable to connect\n");
         return -1;
     }
+
     printf("Connected with server successfully\n");
     printf("--------------------------------------------------------\n\n");
        
-    // Package to the sent to server 
-    the_message = prepare_message(externalIndex, initialTemperature); 
+    while (1) 
+    {
+        // Package to the sent to server 
+        the_message = prepare_message(externalIndex, initialTemperature); 
 
-    // Send the message to server:
-    if(send(socket_desc, (const void *)&the_message, sizeof(the_message), 0) < 0){
-        printf("Unable to send message\n");
-        return -1;
-    }
- 
+        // Send the message to server:
+        if (send(socket_desc, (const void *)&the_message, sizeof(the_message), 0) < 0)
+        {
+            printf("Unable to send message\n");
+            return -1;
+        }
+    
+        // Receive the server's response:
+        ssize_t bytes_recv = recv(socket_desc, (void *)&the_message, sizeof(the_message), 0);
+        
+        if (bytes_recv < 0) 
+        {
+            perror("Did not receive server response");
+            break;
+        } 
+        else if (bytes_recv == 0) 
+        {
+            printf("Temperature Stable: %f\n", initialTemperature);
+            break;
+        }
 
-    // Receive the server's response:
-    if(recv(socket_desc, (void *)&the_message, sizeof(the_message), 0) < 0){
-        printf("Error while receiving server's msg\n");
-        return -1;
+        printf("--------------------------------------------------------\n");
+        printf("Updated temperature sent by the Central process = %f\n", the_message.T);
+
+        // Calculation for External process temperature
+        float centralTemp = the_message.T * 2;
+        initialTemperature = ((initialTemperature * 3) + centralTemp) / 5.0;
+
     }
     
-    printf("--------------------------------------------------------\n");
-    printf("Updated temperature sent by the Central process = %f\n", the_message.T);
     
     // Close the socket:
     close(socket_desc);
